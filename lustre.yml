@@ -1,0 +1,150 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create Lustre*1
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Common Settings
+        Parameters:
+          - ProjectName
+          - Environment
+          - VPCID
+      - Label:
+          default: Lustre Settings
+        Parameters:
+          - LustreSubnetID1
+          - LustreAllowedCidrBlock
+
+Parameters:
+  ProjectName:
+    Description: Project Name
+    Type: String
+    Default: unnamed
+  Environment:
+    Description: Environment
+    Type: String
+    Default: dev
+    AllowedValues:
+      - prod
+      - dev
+  VPCID:
+    Type: AWS::EC2::VPC::Id
+  LustreSubnetID1:
+    Type: AWS::EC2::Subnet::Id
+  LustreAllowedCidrBlock:
+    Type: String
+    Default: "10.0.0.0/16"
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$'
+  LinkS3Bucket:
+    Description: S3 bucket name to link
+    Type: String
+    Default: ""
+  CreateLustreToggle:
+    Description: Create Lustre toggle.
+    Type: String
+    Default: true
+    AllowedValues: [true, false]
+
+Conditions:
+  CreateLustreCondition: !Equals [true, !Ref CreateLustreToggle]
+
+Resources:
+  # ------------------------------------------------------------------------------------ #
+  # FSx for Lustre
+  # ------------------------------------------------------------------------------------ #
+  FSxFileSystem:
+    Type: "AWS::FSx::FileSystem"
+    Condition: CreateLustreCondition
+    Properties:
+      FileSystemType: "LUSTRE"
+      FileSystemTypeVersion: "2.12"
+      StorageCapacity: 1200
+      SubnetIds:
+        - !Ref "LustreSubnetID1"
+      SecurityGroupIds:
+        - !Ref "SecurityGroup1"
+      LustreConfiguration:
+        WeeklyMaintenanceStartTime: "6:20:00"
+        DeploymentType: "PERSISTENT_2"
+        DataCompressionType: "LZ4"
+        PerUnitStorageThroughput: 125
+      StorageType: "SSD"
+      Tags:
+        - Key: "Name"
+          Value: !Sub ${ProjectName}-${Environment}-lustre
+
+  # ------------------------------------------------------------------------------------ #
+  # Security Group
+  # ------------------------------------------------------------------------------------ #
+  # FSx for Lustre
+  SecurityGroup1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-${Environment}-lustre-sg
+      GroupDescription: FSx for Lustre Security Group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          CidrIp: !Ref LustreAllowedCidrBlock
+          Description: "Access from EC2 to mount Lustre"
+        - IpProtocol: tcp
+          FromPort: 988
+          ToPort: 988
+          CidrIp: !Ref LustreAllowedCidrBlock
+          Description: "Access from EC2 to mount Lustre"
+        - IpProtocol: tcp
+          FromPort: 1021
+          ToPort: 1023
+          CidrIp: !Ref LustreAllowedCidrBlock
+          Description: "Access from EC2 to mount Lustre"
+      VpcId: !Ref VPCID
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-lustre-sg
+  # Need to give myself permission to do this.
+  SecurityGroup1Ingress1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SecurityGroup1
+      IpProtocol: tcp
+      FromPort: 988
+      ToPort: 988
+      SourceSecurityGroupId: !GetAtt SecurityGroup1.GroupId
+      Description: "Access from Lustre LNET network"
+  SecurityGroup1Ingress2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SecurityGroup1
+      IpProtocol: tcp
+      FromPort: 1021
+      ToPort: 1023
+      SourceSecurityGroupId: !GetAtt SecurityGroup1.GroupId
+      Description: "Access from Lustre LNET network"
+
+Outputs:
+  ExportLustreID:
+    Condition: CreateLustreCondition
+    Value: !Ref FSxFileSystem
+    Export:
+      Name: !Sub "${AWS::StackName}-LustreID1"
+  ExportLustreMountName:
+    Condition: CreateLustreCondition
+    Value: !GetAtt "FSxFileSystem.LustreMountName"
+    Export:
+      Name: !Sub "${AWS::StackName}-LustreMountName1"
+  ExportLustreDNSName:
+    Condition: CreateLustreCondition
+    Value: !GetAtt "FSxFileSystem.DNSName"
+    Export:
+      Name: !Sub "${AWS::StackName}-LustreDNSName1"
+  ExporetLustreMountCmd:
+    Condition: CreateLustreCondition
+    Description: "Sample command to mount to /mnt/lustre directory"
+    Value: !Sub "sudo mount -t lustre -o noatime,flock ${FSxFileSystem.DNSName}@tcp:/${FSxFileSystem.LustreMountName} /mnt/lustre"
+  ExporetS3LinkCmd:
+    Condition: CreateLustreCondition
+    Description: "Linking Lustre to S3 commnad"
+    Value: !Sub "aws fsx create-data-repository-association --file-system-id ${FSxFileSystem} --file-system-path /bucket1 --batch-import-meta-data-on-create --data-repository-path s3://${LinkS3Bucket} --s3 \"AutoImportPolicy={Events=[NEW,CHANGED,DELETED]},AutoExportPolicy={Events=[NEW,CHANGED,DELETED]}\""
