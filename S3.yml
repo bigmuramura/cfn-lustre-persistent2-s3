@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This CloudFormation template to create S3 Bucket
+
+Parameters:
+  ProjectName:
+    Description: Project Name
+    Type: String
+    Default: unnamed
+  Environment:
+    Description: Environment
+    Type: String
+    Default: dev
+    AllowedValues:
+      - prod
+      - dev
+  S3BucketName:
+    Description: Type of this BacketName.
+    Type: String
+
+Resources:
+  # ------------------------------------------------------------------------------------ #
+  # S3
+  # ------------------------------------------------------------------------------------ #
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      # BucketName: !Sub ${ProjectName}-${Environment}-${S3BucketName}-${AWS::AccountId}
+      BucketName: !Sub ${ProjectName}-${Environment}-${S3BucketName}
+      OwnershipControls: # ACL無効化設定
+        Rules:
+          - ObjectOwnership: "BucketOwnerEnforced"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      VersioningConfiguration:
+        Status: "Enabled"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+            BucketKeyEnabled: false
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleMultipartUpload # 不完全なマルチパートアップロードの削除
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+            Status: "Enabled"
+          - Id: NoncurrentVersionExpiration # 世代管理のバージョン数保持
+            NoncurrentVersionExpiration:
+              NewerNoncurrentVersions: 3
+              NoncurrentDays: 1
+            Status: "Enabled"
+          - Id: IntelligentTiering # Intelligent-Tieringへ移動
+            Transitions:
+              - TransitionInDays: 14
+                StorageClass: INTELLIGENT_TIERING
+            Status: "Enabled"
+        # - Id: AutoDeleteObjects
+        #   Status: Enabled
+        #   ExpirationInDays: 400
