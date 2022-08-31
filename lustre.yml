@@ -6,24 +6,30 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: Common Settings
+          default: Often use
+        Parameters:
+          - CreateLustreToggle
+          - LustreThrougput
+          - LustreStorageCapacity
+          - LustreDataCompressionType
+          - LinkS3Bucket
+      - Label:
+          default: Common Settings for the first time only
         Parameters:
           - ProjectName
           - Environment
           - VPCID
       - Label:
-          default: Lustre Settings
+          default: Lustre Settings for the first time only
         Parameters:
           - LustreSubnetID1
           - LustreAllowedCidrBlock
 
 Parameters:
   ProjectName:
-    Description: Project Name
     Type: String
     Default: unnamed
   Environment:
-    Description: Environment
     Type: String
     Default: dev
     AllowedValues:
@@ -37,12 +43,39 @@ Parameters:
     Type: String
     Default: "10.0.0.0/16"
     AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$'
+  LustreStorageCapacity:
+    Description: Select storage capacity (GiB)
+    Type: Number
+    Default: 1200
+    AllowedValues:
+      - 1200
+      - 2400
+      - 4800
+      - 7200
+      - 9600
+      - 12000
+  LustreThrougput:
+    Description: Select throughput (MB/s/TiB)
+    Type: Number
+    Default: 125
+    AllowedValues:
+      - 125
+      - 250
+      - 500
+      - 1000
+  LustreDataCompressionType:
+    Description: Select compression type
+    Type: String
+    Default: "LZ4"
+    AllowedValues:
+      - "LZ4"
+      - "NONE"
   LinkS3Bucket:
-    Description: S3 bucket name to link
+    Description: Name of S3 bucket to link with Lustre
     Type: String
     Default: ""
   CreateLustreToggle:
-    Description: Create Lustre toggle.
+    Description: Select true to create Lustre and false to delete it
     Type: String
     Default: true
     AllowedValues: [true, false]
@@ -60,7 +93,7 @@ Resources:
     Properties:
       FileSystemType: "LUSTRE"
       FileSystemTypeVersion: "2.12"
-      StorageCapacity: 1200
+      StorageCapacity: !Ref LustreStorageCapacity
       SubnetIds:
         - !Ref "LustreSubnetID1"
       SecurityGroupIds:
@@ -68,12 +101,12 @@ Resources:
       LustreConfiguration:
         WeeklyMaintenanceStartTime: "6:20:00"
         DeploymentType: "PERSISTENT_2"
-        DataCompressionType: "LZ4"
-        PerUnitStorageThroughput: 125
+        DataCompressionType: !Ref LustreDataCompressionType
+        PerUnitStorageThroughput: !Ref LustreThrougput
       StorageType: "SSD"
       Tags:
         - Key: "Name"
-          Value: !Sub ${ProjectName}-${Environment}-lustre
+          Value: !Sub ${ProjectName}-${Environment}-temporary-lustre
 
   # ------------------------------------------------------------------------------------ #
   # Security Group
@@ -82,7 +115,7 @@ Resources:
   SecurityGroup1:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub ${ProjectName}-${Environment}-lustre-sg
+      GroupName: !Sub ${ProjectName}-${Environment}-temporary-lustre-sg
       GroupDescription: FSx for Lustre Security Group
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -103,7 +136,7 @@ Resources:
       VpcId: !Ref VPCID
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-lustre-sg
+          Value: !Sub ${ProjectName}-${Environment}-temporary-lustre-sg
   # Need to give myself permission to do this.
   SecurityGroup1Ingress1:
     Type: AWS::EC2::SecurityGroupIngress
